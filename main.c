@@ -11,7 +11,7 @@
 #include <hardware/intbits.h>
 
 // config
-#define MUSIC
+#define MUSIC_OFF
 
 struct ExecBase *SysBase;
 volatile struct Custom *custom;
@@ -196,14 +196,16 @@ const UWORD gradientCopper[] __attribute__((section(".MEMF_CHIP"))) = {
 #define BPLCON0 (0x100)
 #define PRA_FIR0_BIT (1 << 6)
 #define BPLCON0_COMPOSITE_COLOR (1 << 9)
+#define BPLCON0_DUALPF (1 << 10)
+#define BPLCON0_NUM_BITPLANES(n) (((n) & 7) << 12)
 
-static UWORD coplist_pal[] __attribute__((section(".MEMF_CHIP"))) = {
-	COP_MOVE(BPLCON0, BPLCON0_COMPOSITE_COLOR),
-	COP_MOVE(COLOR00, 0x000),
-	0x7c07, 0xfffe, // wait for 1/3 (0x07, 0x7c)
+const UWORD coplist_pal[] __attribute__((section(".MEMF_CHIP"))) = {
+	COP_MOVE(BPLCON0, BPLCON0_COMPOSITE_COLOR | BPLCON0_NUM_BITPLANES(5)),
 	COP_MOVE(COLOR00, 0xf00),
+	0x7c07, 0xfffe, // wait for 1/3 (0x07, 0x7c)
+	COP_MOVE(COLOR00, 0xfff),
 	0xda07, 0xfffe, // wait for 2/3 (0x07, 0xda)
-	COP_MOVE(COLOR00, 0xff0),
+	COP_MOVE(COLOR00, 0x00f),
 	COP_WAIT_END};
 
 void *doynaxdepack(const void *input, void *output)
@@ -416,6 +418,7 @@ int main()
 	debug_register_palette(colors, "image.pal", 32, 0);
 	debug_register_copperlist(copper1, "copper1", 1024, 0);
 	debug_register_copperlist(gradientCopper, "copper2", sizeof(gradientCopper), 0);
+	debug_register_copperlist(coplist_pal, "palcopper", sizeof(coplist_pal), 0);
 
 	copPtr = screenScanDefault(copPtr);
 	// enable bitplanes
@@ -450,7 +453,8 @@ int main()
 	*copPtr++ = 0x7fff;
 
 	custom->cop1lc = (ULONG)copper1;
-	custom->cop2lc = (ULONG)gradientCopper;
+	// custom->cop2lc = (ULONG)gradientCopper;
+	custom->cop2lc = (ULONG)coplist_pal;
 	custom->dmacon = DMAF_BLITTER; // disable blitter dma for copjmp bug
 	custom->copjmp1 = 0x7fff;	   // start coppper
 	custom->dmacon = DMAF_SETCLR | DMAF_MASTER | DMAF_RASTER | DMAF_COPPER | DMAF_BLITTER;
@@ -487,7 +491,7 @@ int main()
 		// WinUAE debug overlay test
 		debug_clear();
 		debug_filled_rect(f + 100, 200 * 2, f + 400, 220 * 2, 0x0000ff00); // 0x00RRGGBB
-		debug_rect(f + 90, 190 * 2, f + 400, 220 * 2, 0x000000ff);		   // 0x00RRGGBB
+		debug_rect(f + 90, 190 * 2, f + 400, 220 * 2, 0x00ff00ff);		   // 0x00RRGGBB
 		debug_text(f + 130, 209 * 2, "This is a WinUAE debug overlay", 0x00ff00ff);
 	}
 
