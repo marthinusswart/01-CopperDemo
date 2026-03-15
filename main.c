@@ -11,7 +11,7 @@
 #include <hardware/intbits.h>
 
 // config
-#define MUSIC_OFF
+#define MUSIC
 
 struct ExecBase *SysBase;
 volatile struct Custom *custom;
@@ -167,7 +167,7 @@ INCBIN_CHIP(image, "image.bpl") // load image into chipmem so we can use it with
 INCBIN_CHIP(bob, "bob.bpl")
 
 // put copperlist into chip mem so we can use it without copying
-const UWORD gradientCopper[] __attribute__((section(".MEMF_CHIP"))) = {
+UWORD gradientCopper[] __attribute__((section(".MEMF_CHIP"))) = {
 	offsetof(struct Custom, color[0]), 0x0000,
 	0x4101, 0xff00, offsetof(struct Custom, color[0]), 0x0111, // line 0x41
 	0x4201, 0xff00, offsetof(struct Custom, color[0]), 0x0222, // line 0x42
@@ -199,13 +199,17 @@ const UWORD gradientCopper[] __attribute__((section(".MEMF_CHIP"))) = {
 #define BPLCON0_DUALPF (1 << 10)
 #define BPLCON0_NUM_BITPLANES(n) (((n) & 7) << 12)
 
-const UWORD coplist_pal[] __attribute__((section(".MEMF_CHIP"))) = {
+const UWORD colorRed = 0xf00;
+const UWORD colorBlue = 0x00f;
+const UWORD colorWhite = 0xfff;
+
+UWORD coplist_pal[] __attribute__((section(".MEMF_CHIP"))) = {
 	COP_MOVE(BPLCON0, BPLCON0_COMPOSITE_COLOR | BPLCON0_NUM_BITPLANES(5)),
-	COP_MOVE(COLOR00, 0xf00),
+	COP_MOVE(COLOR00, colorRed),
 	0x7c07, 0xfffe, // wait for 1/3 (0x07, 0x7c)
-	COP_MOVE(COLOR00, 0xfff),
+	COP_MOVE(COLOR00, colorWhite),
 	0xda07, 0xfffe, // wait for 2/3 (0x07, 0xda)
-	COP_MOVE(COLOR00, 0x00f),
+	COP_MOVE(COLOR00, colorBlue),
 	COP_WAIT_END};
 
 void *doynaxdepack(const void *input, void *output)
@@ -308,6 +312,77 @@ __attribute__((always_inline)) inline USHORT *copSetColor(USHORT *copListCurrent
 }
 
 UWORD *scroll = NULL;
+
+// Format a string with %d placeholder replaced by integer value
+void formatString(char *output, const char *format, int value)
+{
+	int outIdx = 0;
+	int fmtIdx = 0;
+
+	// Copy format string until we find %d
+	while (format[fmtIdx] != '\0')
+	{
+		if (format[fmtIdx] == '%' && format[fmtIdx + 1] == 'd')
+		{
+			// Convert integer to string
+			char numBuf[12];
+			int numIdx = 0;
+
+			if (value == 0)
+			{
+				numBuf[numIdx++] = '0';
+			}
+			else
+			{
+				int temp = value;
+				int digits = 0;
+				int isNegative = 0;
+
+				if (temp < 0)
+				{
+					isNegative = 1;
+					temp = -temp;
+				}
+
+				while (temp > 0)
+				{
+					temp /= 10;
+					digits++;
+				}
+
+				if (isNegative)
+				{
+					numBuf[0] = '-';
+					numIdx = 1;
+					digits++;
+				}
+
+				temp = value < 0 ? -value : value;
+				for (int i = digits - 1; i >= (isNegative ? 1 : 0); i--)
+				{
+					numBuf[i] = (temp % 10) + '0';
+					temp /= 10;
+				}
+				numIdx = digits;
+			}
+
+			// Copy number to output
+			for (int i = 0; i < numIdx; i++)
+			{
+				output[outIdx++] = numBuf[i];
+			}
+
+			// Skip %d in format string
+			fmtIdx += 2;
+		}
+		else
+		{
+			output[outIdx++] = format[fmtIdx++];
+		}
+	}
+
+	output[outIdx] = '\0';
+}
 
 static __attribute__((interrupt)) void interruptHandler()
 {
@@ -490,9 +565,23 @@ int main()
 
 		// WinUAE debug overlay test
 		debug_clear();
-		debug_filled_rect(f + 100, 200 * 2, f + 400, 220 * 2, 0x0000ff00); // 0x00RRGGBB
-		debug_rect(f + 90, 190 * 2, f + 400, 220 * 2, 0x00ff00ff);		   // 0x00RRGGBB
-		debug_text(f + 130, 209 * 2, "This is a WinUAE debug overlay", 0x00ff00ff);
+		debug_filled_rect(f + 100, 230 * 2, f + 400, 250 * 2, 0x0000ff00); // 0x00RRGGBB
+		debug_rect(f + 90, 230 * 2, f + 400, 250 * 2, 0x00ff00ff);		   // 0x00RRGGBB
+
+		char debugTextBuffer[64];
+		formatString(debugTextBuffer, "WinUAE debug - Frame: %d", f);
+		debug_text(f + 130, 240 * 2, debugTextBuffer, 0x00ff00ff);
+
+		if (f >= 128)
+		{
+			coplist_pal[3] = colorBlue;
+			coplist_pal[11] = colorRed;
+		}
+		else
+		{
+			coplist_pal[3] = colorRed;
+			coplist_pal[11] = colorBlue;
+		}
 	}
 
 #ifdef MUSIC
